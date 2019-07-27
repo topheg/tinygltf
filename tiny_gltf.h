@@ -26,6 +26,8 @@
 // THE SOFTWARE.
 
 // Version:
+//  - v2.6.0 Explicitly support KHR_materials_pbrSpecularGlossiness,
+//           KHR_materials_unlit and KHR_texture_transform
 //  - v2.5.0 Add SetPreserveImageChannels() option to load image data as is.
 //  - v2.4.3 Fix null object output when when material has all default parameters.
 //  - v2.4.2 Decode percent-encoded URI.
@@ -692,10 +694,32 @@ struct Texture {
   bool operator==(const Texture &) const;
 };
 
+struct KHRTextureTransform {
+  bool enabled = false;  // true if KHR_texture_transform extension exists in
+                         // glTF model. also plese set this to true if you
+                         // serialize this class to glTF.
+
+  std::vector<double> offset;  // len = 2, default [0, 0]
+  double rotation = 0.0;       // default 0.0
+  std::vector<double> scale;   // len = 2, default [1, 1]
+  int texCoord = -1;  // overwrites the textureInfo texCoord if this is not -1.
+                      // textureInfo this extension belongs to have same
+                      // texCoord value after parsing this extension.
+
+  Value extras;
+  ExtensionMap extensions;
+
+  KHRTextureTransform() : enabled(false), rotation(0.0), texCoord(-1) {}
+  bool operator==(const KHRTextureTransform &) const;
+};
+
 struct TextureInfo {
   int index = -1;  // required.
   int texCoord;    // The set index of texture's TEXCOORD attribute used for
                    // texture coordinate mapping.
+
+  KHRTextureTransform
+      KHR_textureTransform;  // extensions["KHR_texture_transform"]
 
   Value extras;
   ExtensionMap extensions;
@@ -716,6 +740,9 @@ struct NormalTextureInfo {
   double scale;    // scaledNormal = normalize((<sampled normal texture value>
                    // * 2.0 - 1.0) * vec3(<normal scale>, <normal scale>, 1.0))
 
+  KHRTextureTransform
+      KHR_textureTransform;  // extensions["KHR_texture_transform"]
+
   Value extras;
   ExtensionMap extensions;
 
@@ -734,6 +761,9 @@ struct OcclusionTextureInfo {
                     // texture coordinate mapping.
   double strength;  // occludedColor = lerp(color, color * <sampled occlusion
                     // texture value>, <occlusion strength>)
+
+  KHRTextureTransform
+      KHR_textureTransform;  // extensions["KHR_texture_transform"]
 
   Value extras;
   ExtensionMap extensions;
@@ -770,6 +800,25 @@ struct PbrMetallicRoughness {
   bool operator==(const PbrMetallicRoughness &) const;
 };
 
+// KHR_materials_pbrSpecularGlossiness defined in glTF 2.0 KHR extension.
+struct KHRPbrSpecularGlossiness {
+  bool enabled = false;  // true if this KHR extension exists in glTF model.
+                         // also plese set this to true if you serialize this
+                         // class to glTF.
+
+  std::vector<double> diffuseFactor;  // len = 4. default [1,1,1,1]
+  TextureInfo diffuseTexture;
+  std::vector<double> specularFactor;  // len = 3. default [1,1,1]
+  double glossinessFactor = 1.0;       // default 1
+  TextureInfo specularGlossinessTexture;
+
+  Value extras;
+  ExtensionMap extensions;
+
+  KHRPbrSpecularGlossiness() : glossinessFactor(1.0) {}
+  bool operator==(const KHRPbrSpecularGlossiness &) const;
+};
+
 // Each extension should be stored in a ParameterMap.
 // members not in the values could be included in the ParameterMap
 // to keep a single material model
@@ -787,6 +836,11 @@ struct Material {
   OcclusionTextureInfo occlusionTexture;
   TextureInfo emissiveTexture;
 
+  bool KHR_materials_unlit =
+      false;  // shortcut to extensions.count("KHR_materials_unlit")
+
+  KHRPbrSpecularGlossiness KHR_pbrSpecularGlossiness;
+
   // For backward compatibility
   // TODO(syoyo): Remove `values` and `additionalValues` in the next release.
   ParameterMap values;
@@ -794,12 +848,11 @@ struct Material {
 
   ExtensionMap extensions;
   Value extras;
-
   // Filled when SetStoreOriginalJSONForExtrasAndExtensions is enabled.
   std::string extras_json_string;
   std::string extensions_json_string;
 
-  Material() : alphaMode("OPAQUE"), alphaCutoff(0.5), doubleSided(false) {}
+  Material() : alphaMode("OPAQUE"), alphaCutoff(0.5), doubleSided(false), KHR_materials_unlit(false) {}
   DEFAULT_METHODS(Material)
 
   bool operator==(const Material &) const;
@@ -1948,20 +2001,33 @@ bool Texture::operator==(const Texture &other) const {
          this->name == other.name && this->sampler == other.sampler &&
          this->source == other.source;
 }
+
+bool KHRTextureTransform::operator==(const KHRTextureTransform &other) const {
+  return this->extensions == other.extensions && this->extras == other.extras &&
+         Equals(this->scale, other.scale) &&
+         Equals(this->offset, other.offset) &&
+         TINYGLTF_DOUBLE_EQUAL(this->rotation, other.rotation);
+}
+
 bool TextureInfo::operator==(const TextureInfo &other) const {
   return this->extensions == other.extensions && this->extras == other.extras &&
-         this->index == other.index && this->texCoord == other.texCoord;
+         this->index == other.index && this->texCoord == other.texCoord &&
+         (this->KHR_textureTransform == other.KHR_textureTransform);
 }
+
 bool NormalTextureInfo::operator==(const NormalTextureInfo &other) const {
   return this->extensions == other.extensions && this->extras == other.extras &&
          this->index == other.index && this->texCoord == other.texCoord &&
-         TINYGLTF_DOUBLE_EQUAL(this->scale, other.scale);
+         TINYGLTF_DOUBLE_EQUAL(this->scale, other.scale) &&
+         (this->KHR_textureTransform == other.KHR_textureTransform);
 }
 bool OcclusionTextureInfo::operator==(const OcclusionTextureInfo &other) const {
   return this->extensions == other.extensions && this->extras == other.extras &&
          this->index == other.index && this->texCoord == other.texCoord &&
-         TINYGLTF_DOUBLE_EQUAL(this->strength, other.strength);
+         TINYGLTF_DOUBLE_EQUAL(this->strength, other.strength) &&
+         (this->KHR_textureTransform == other.KHR_textureTransform);
 }
+
 bool PbrMetallicRoughness::operator==(const PbrMetallicRoughness &other) const {
   return this->extensions == other.extensions && this->extras == other.extras &&
          (this->baseColorTexture == other.baseColorTexture) &&
@@ -1970,6 +2036,17 @@ bool PbrMetallicRoughness::operator==(const PbrMetallicRoughness &other) const {
          TINYGLTF_DOUBLE_EQUAL(this->metallicFactor, other.metallicFactor) &&
          TINYGLTF_DOUBLE_EQUAL(this->roughnessFactor, other.roughnessFactor);
 }
+
+bool KHRPbrSpecularGlossiness::operator==(
+    const KHRPbrSpecularGlossiness &other) const {
+  return this->extensions == other.extensions && this->extras == other.extras &&
+         Equals(this->diffuseFactor, other.diffuseFactor) &&
+         Equals(this->specularFactor, other.specularFactor) &&
+         (this->diffuseTexture == other.diffuseTexture) &&
+         (this->specularGlossinessTexture == other.specularGlossinessTexture) &&
+         TINYGLTF_DOUBLE_EQUAL(this->glossinessFactor, other.glossinessFactor);
+}
+
 bool Value::operator==(const Value &other) const {
   return Equals(*this, other);
 }
@@ -3906,6 +3983,57 @@ static bool ParseTexture(Texture *texture, std::string *err, const json &o,
   return true;
 }
 
+static bool ParseKHRTextureTransform(KHRTextureTransform *texform,
+                                     std::string *err, const json &o) {
+  if (texform == nullptr) {
+    return false;
+  }
+
+  std::vector<double> offset;
+  if (ParseNumberArrayProperty(&offset, err, o, "offset",
+                               /* required */ false)) {
+    if (offset.size() != 2) {
+      if (err) {
+        (*err) +=
+            "Array length of `offset` parameter in "
+            "KHR_texture_transform must be 2, but got " +
+            std::to_string(offset.size()) + "\n";
+      }
+      return false;
+    }
+  } else {
+    offset = {0.0, 0.0};
+  }
+  texform->offset = offset;
+
+  std::vector<double> scale;
+  if (ParseNumberArrayProperty(&scale, err, o, "scale",
+                               /* required */ false)) {
+    if (scale.size() != 2) {
+      if (err) {
+        (*err) +=
+            "Array length of `scale` parameter in "
+            "KHR_texture_transform must be 2, but got " +
+            std::to_string(scale.size()) + "\n";
+      }
+      return false;
+    }
+  } else {
+    scale = {0.0, 0.0};
+  }
+  texform->scale = scale;
+
+  ParseNumberProperty(&texform->rotation, err, o, "rotation",
+                      /* required */ false);
+
+  ParseIntegerProperty(&texform->texCoord, err, o, "texCoord",
+                       /* required */ false);
+
+  texform->enabled = true;
+
+  return true;
+}
+
 static bool ParseTextureInfo(
     TextureInfo *texinfo, std::string *err, const json &o,
     bool store_original_json_for_extras_and_extensions) {
@@ -3923,6 +4051,18 @@ static bool ParseTextureInfo(
   ParseExtensionsProperty(&texinfo->extensions, err, o);
   ParseExtrasProperty(&texinfo->extras, o);
 
+  bool ret = true;
+
+  if (texinfo->extensions.count("KHR_texture_transform")) {
+    ret &= ParseKHRTextureTransform(&texinfo->KHR_textureTransform, err,
+                                    o["extensions"]["KHR_texture_transform"]);
+    if (texinfo->KHR_textureTransform.enabled &&
+        texinfo->KHR_textureTransform.texCoord >= 0) {
+      // As described in the specification, overwrite texCoord.
+      texinfo->texCoord = texinfo->KHR_textureTransform.texCoord;
+    }
+  }
+
   if (store_original_json_for_extras_and_extensions) {
     {
       json_const_iterator it;
@@ -3938,7 +4078,7 @@ static bool ParseTextureInfo(
     }
   }
 
-  return true;
+  return ret;
 }
 
 static bool ParseNormalTextureInfo(
@@ -3959,6 +4099,17 @@ static bool ParseNormalTextureInfo(
   ParseExtensionsProperty(&texinfo->extensions, err, o);
   ParseExtrasProperty(&texinfo->extras, o);
 
+  bool ret = true;
+  if (texinfo->extensions.count("KHR_texture_transform")) {
+    ret &= ParseKHRTextureTransform(&texinfo->KHR_textureTransform, err,
+                                    o["extensions"]["KHR_texture_transform"]);
+    if (texinfo->KHR_textureTransform.enabled &&
+        texinfo->KHR_textureTransform.texCoord >= 0) {
+      // As described in the specification, overwrite texCoord.
+      texinfo->texCoord = texinfo->KHR_textureTransform.texCoord;
+    }
+  }
+
   if (store_original_json_for_extras_and_extensions) {
     {
       json_const_iterator it;
@@ -3974,7 +4125,7 @@ static bool ParseNormalTextureInfo(
     }
   }
 
-  return true;
+  return ret;
 }
 
 static bool ParseOcclusionTextureInfo(
@@ -3995,6 +4146,17 @@ static bool ParseOcclusionTextureInfo(
   ParseExtensionsProperty(&texinfo->extensions, err, o);
   ParseExtrasProperty(&texinfo->extras, o);
 
+  bool ret = true;
+  if (texinfo->extensions.count("KHR_texture_transform")) {
+    ret &= ParseKHRTextureTransform(&texinfo->KHR_textureTransform, err,
+                                    o["extensions"]["KHR_texture_transform"]);
+    if (texinfo->KHR_textureTransform.enabled &&
+        texinfo->KHR_textureTransform.texCoord >= 0) {
+      // As described in the specification, overwrite texCoord.
+      texinfo->texCoord = texinfo->KHR_textureTransform.texCoord;
+    }
+  }
+
   if (store_original_json_for_extras_and_extensions) {
     {
       json_const_iterator it;
@@ -4010,7 +4172,7 @@ static bool ParseOcclusionTextureInfo(
     }
   }
 
-  return true;
+  return ret;
 }
 
 static bool ParseBuffer(Buffer *buffer, std::string *err, const json &o,
@@ -4752,6 +4914,7 @@ static bool ParsePbrMetallicRoughness(
     pbr->baseColorFactor = baseColorFactor;
   }
 
+  bool ret = true;
   {
     json_const_iterator it;
     if (FindMember(o, "baseColorTexture", it)) {
@@ -4792,8 +4955,82 @@ static bool ParsePbrMetallicRoughness(
   return true;
 }
 
+static bool ParseKHRPbrSpecularGlossiness(KHRPbrSpecularGlossiness *pbr,
+                                          std::string *err, const json &o,
+                                          bool store_original_json_for_extras_and_extensions) {
+  if (pbr == nullptr) {
+    return false;
+  }
+
+  std::vector<double> diffuseFactor;
+  if (ParseNumberArrayProperty(&diffuseFactor, err, o, "diffuseFactor",
+                               /* required */ false)) {
+    if (diffuseFactor.size() != 4) {
+      if (err) {
+        (*err) +=
+            "Array length of `diffuseFactor` parameter in "
+            "KHR_materials_pbrMetallicRoughness must be 4, but got " +
+            std::to_string(diffuseFactor.size()) + "\n";
+      }
+      return false;
+    }
+  } else {
+    // fill with default values
+    diffuseFactor = {1.0, 1.0, 1.0, 1.0};
+  }
+  pbr->diffuseFactor = diffuseFactor;
+
+  bool ret = true;
+
+  {
+    json_const_iterator it;
+    if (FindMember(o, "diffuseTexture", it)) {
+      ret &= ParseTextureInfo(&pbr->diffuseTexture, err, GetValue(it),
+                       store_original_json_for_extras_and_extensions);
+    }
+  }
+
+  {
+    json_const_iterator it;
+    if (FindMember(o, "specularGlossinessTexture", it)) {
+      ret &= ParseTextureInfo(&pbr->specularGlossinessTexture, err, GetValue(it),
+                       store_original_json_for_extras_and_extensions);
+    }
+  }
+
+  std::vector<double> specularFactor;
+  if (ParseNumberArrayProperty(&specularFactor, err, o, "specularFactor",
+                               /* required */ false)) {
+    if (specularFactor.size() != 3) {
+      if (err) {
+        (*err) +=
+            "Array length of `specularFactor` parameter in "
+            "KHR_materials_pbrMetallicRoughness must be 3, but got " +
+            std::to_string(diffuseFactor.size()) + "\n";
+      }
+      return false;
+    }
+  } else {
+    // fill with default values
+    specularFactor = {1.0, 1.0, 1.0};
+  }
+  pbr->specularFactor = specularFactor;
+
+  ParseNumberProperty(&pbr->glossinessFactor, err, o, "glossinessFactor",
+                      false);
+
+  ParseExtensionsProperty(&pbr->extensions, err, o);
+  ParseExtrasProperty(&pbr->extras, o);
+
+  pbr->enabled = true;
+
+  return ret;
+}
+
 static bool ParseMaterial(Material *material, std::string *err, const json &o,
                           bool store_original_json_for_extras_and_extensions) {
+  bool ret = true;
+
   ParseStringProperty(&material->name, err, o, "name", /* required */ false);
 
   if (ParseNumberArrayProperty(&material->emissiveFactor, err, o,
@@ -4823,7 +5060,7 @@ static bool ParseMaterial(Material *material, std::string *err, const json &o,
   {
     json_const_iterator it;
     if (FindMember(o, "pbrMetallicRoughness", it)) {
-      ParsePbrMetallicRoughness(&material->pbrMetallicRoughness, err,
+      ret &= ParsePbrMetallicRoughness(&material->pbrMetallicRoughness, err,
                                 GetValue(it),
                                 store_original_json_for_extras_and_extensions);
     }
@@ -4832,7 +5069,7 @@ static bool ParseMaterial(Material *material, std::string *err, const json &o,
   {
     json_const_iterator it;
     if (FindMember(o, "normalTexture", it)) {
-      ParseNormalTextureInfo(&material->normalTexture, err, GetValue(it),
+      ret &= ParseNormalTextureInfo(&material->normalTexture, err, GetValue(it),
                              store_original_json_for_extras_and_extensions);
     }
   }
@@ -4840,7 +5077,7 @@ static bool ParseMaterial(Material *material, std::string *err, const json &o,
   {
     json_const_iterator it;
     if (FindMember(o, "occlusionTexture", it)) {
-      ParseOcclusionTextureInfo(&material->occlusionTexture, err, GetValue(it),
+      ret &= ParseOcclusionTextureInfo(&material->occlusionTexture, err, GetValue(it),
                                 store_original_json_for_extras_and_extensions);
     }
   }
@@ -4848,7 +5085,7 @@ static bool ParseMaterial(Material *material, std::string *err, const json &o,
   {
     json_const_iterator it;
     if (FindMember(o, "emissiveTexture", it)) {
-      ParseTextureInfo(&material->emissiveTexture, err, GetValue(it),
+      ret &= ParseTextureInfo(&material->emissiveTexture, err, GetValue(it),
                        store_original_json_for_extras_and_extensions);
     }
   }
@@ -4895,6 +5132,25 @@ static bool ParseMaterial(Material *material, std::string *err, const json &o,
     }
   }
 
+  //
+  // Materialize some KHR material extensions.
+  // KHR material extensions still exists in `exntensions` as Value(opaque)
+  // variable.
+  //
+  if (material->extensions.count("KHR_materials_unlit")) {
+    material->KHR_materials_unlit = true;
+  }
+
+  const std::string kKHR_materials_pbrSpecularGlossiness =
+      "KHR_materials_pbrSpecularGlossiness";
+  if (material->extensions.count(kKHR_materials_pbrSpecularGlossiness)) {
+    // Use JSON
+    ret &= ParseKHRPbrSpecularGlossiness(
+        &material->KHR_pbrSpecularGlossiness, err,
+        o["extensions"][kKHR_materials_pbrSpecularGlossiness.c_str()],
+        store_original_json_for_extras_and_extensions);
+  }
+
   material->extensions.clear();
   ParseExtensionsProperty(&material->extensions, err, o);
   ParseExtrasProperty(&(material->extras), o);
@@ -4914,7 +5170,7 @@ static bool ParseMaterial(Material *material, std::string *err, const json &o,
     }
   }
 
-  return true;
+  return ret;
 }
 
 static bool ParseAnimationChannel(
@@ -6828,10 +7084,39 @@ static void SerializeGltfImage(Image &image, json &o) {
   SerializeExtensionMap(image.extensions, o);
 }
 
+static void SerializeKHRTextureTransform(KHRTextureTransform &texform,
+                                         json &o) {
+  SerializeNumberProperty("rotation", texform.rotation, o);
+
+  if (texform.texCoord >= 0) {
+    SerializeNumberProperty("texCoord", texform.texCoord, o);
+  }
+
+  {
+    std::vector<double> default_offset = {0.0, 0.0};
+    if (!Equals(texform.offset, default_offset)) {
+      SerializeNumberArrayProperty("offset", texform.offset, o);
+    }
+  }
+
+  {
+    std::vector<double> default_scale = {1.0, 1.0};
+    if (!Equals(texform.offset, default_scale)) {
+      SerializeNumberArrayProperty("scale", texform.scale, o);
+    }
+  }
+
+  if (texform.extras.Type() != NULL_TYPE) {
+    SerializeValue("extras", texform.extras, o);
+  }
+
+  SerializeExtensionMap(texform.extensions, o);
+}
+
 static void SerializeGltfTextureInfo(TextureInfo &texinfo, json &o) {
   SerializeNumberProperty("index", texinfo.index, o);
 
-  if (texinfo.texCoord != 0) {
+  if (texinfo.texCoord >= 0) {
     SerializeNumberProperty("texCoord", texinfo.texCoord, o);
   }
 
@@ -6840,13 +7125,20 @@ static void SerializeGltfTextureInfo(TextureInfo &texinfo, json &o) {
   }
 
   SerializeExtensionMap(texinfo.extensions, o);
+
+  // Overwite KHR_texture_transform
+  if (texinfo.KHR_textureTransform.enabled) {
+    json texform;
+    SerializeKHRTextureTransform(texinfo.KHR_textureTransform, texform);
+    o["extensions"]["KHR_texture_transform"] = texform;
+  }
 }
 
 static void SerializeGltfNormalTextureInfo(NormalTextureInfo &texinfo,
                                            json &o) {
   SerializeNumberProperty("index", texinfo.index, o);
 
-  if (texinfo.texCoord != 0) {
+  if (texinfo.texCoord >= 0) {
     SerializeNumberProperty("texCoord", texinfo.texCoord, o);
   }
 
@@ -6859,13 +7151,20 @@ static void SerializeGltfNormalTextureInfo(NormalTextureInfo &texinfo,
   }
 
   SerializeExtensionMap(texinfo.extensions, o);
+
+  // Overwite KHR_texture_transform
+  if (texinfo.KHR_textureTransform.enabled) {
+    json texform;
+    SerializeKHRTextureTransform(texinfo.KHR_textureTransform, texform);
+    o["extensions"]["KHR_texture_transform"] = texform;
+  }
 }
 
 static void SerializeGltfOcclusionTextureInfo(OcclusionTextureInfo &texinfo,
                                               json &o) {
   SerializeNumberProperty("index", texinfo.index, o);
 
-  if (texinfo.texCoord != 0) {
+  if (texinfo.texCoord >= 0) {
     SerializeNumberProperty("texCoord", texinfo.texCoord, o);
   }
 
@@ -6878,6 +7177,13 @@ static void SerializeGltfOcclusionTextureInfo(OcclusionTextureInfo &texinfo,
   }
 
   SerializeExtensionMap(texinfo.extensions, o);
+
+  // Overwite KHR_texture_transform
+  if (texinfo.KHR_textureTransform.enabled) {
+    json texform;
+    SerializeKHRTextureTransform(texinfo.KHR_textureTransform, texform);
+    o["extensions"]["KHR_texture_transform"] = texform;
+  }
 }
 
 static void SerializeGltfPbrMetallicRoughness(PbrMetallicRoughness &pbr,
@@ -6906,6 +7212,41 @@ static void SerializeGltfPbrMetallicRoughness(PbrMetallicRoughness &pbr,
     json texinfo;
     SerializeGltfTextureInfo(pbr.metallicRoughnessTexture, texinfo);
     JsonAddMember(o, "metallicRoughnessTexture", std::move(texinfo));
+  }
+
+  SerializeExtensionMap(pbr.extensions, o);
+
+  if (pbr.extras.Type() != NULL_TYPE) {
+    SerializeValue("extras", pbr.extras, o);
+  }
+}
+
+static void SerializeGltfKHRMaterialsPbrSpecularGlossiness(
+    KHRPbrSpecularGlossiness &pbr, json &o) {
+  std::vector<double> default_diffuseFactor = {1.0, 1.0, 1.0, 1.0};
+  if (!Equals(pbr.diffuseFactor, default_diffuseFactor)) {
+    SerializeNumberArrayProperty<double>("diffuseFactor", pbr.diffuseFactor, o);
+  }
+  std::vector<double> default_specularFactor = {1.0, 1.0, 1.0};
+  if (!Equals(pbr.specularFactor, default_specularFactor)) {
+    SerializeNumberArrayProperty<double>("specularFactor", pbr.specularFactor,
+                                         o);
+  }
+
+  if (!TINYGLTF_DOUBLE_EQUAL(pbr.glossinessFactor, 1.0)) {
+    SerializeNumberProperty("glossinessFactor", pbr.glossinessFactor, o);
+  }
+
+  if (pbr.diffuseTexture.index >= -1) {
+    json texinfo;
+    SerializeGltfTextureInfo(pbr.diffuseTexture, texinfo);
+    o["diffuseTexture"] = texinfo;
+  }
+
+  if (pbr.specularGlossinessTexture.index >= -1) {
+    json texinfo;
+    SerializeGltfTextureInfo(pbr.specularGlossinessTexture, texinfo);
+    o["specularGlossinessTexture"] = texinfo;
   }
 
   SerializeExtensionMap(pbr.extensions, o);
@@ -6985,6 +7326,21 @@ static void SerializeGltfMaterial(Material &material, json &o) {
 #endif
 
   SerializeExtensionMap(material.extensions, o);
+
+  // Overwrite KHR_materials_unlit
+  if (material.KHR_materials_unlit) {
+    o["extensions"]["KHR_materials_unlit"] = true;
+  }
+
+  // Overwrite KHR_materials_pbrSpecularGlossiness
+  if (material.KHR_pbrSpecularGlossiness.enabled) {
+    json pbr;
+
+    SerializeGltfKHRMaterialsPbrSpecularGlossiness(
+        material.KHR_pbrSpecularGlossiness, pbr);
+
+    o["extensions"]["KHR_materials_pbrSpecularGlossiness"] = pbr;
+  }
 
   if (material.extras.Type() != NULL_TYPE) {
     SerializeValue("extras", material.extras, o);
