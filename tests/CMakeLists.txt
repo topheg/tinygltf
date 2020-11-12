@@ -1,0 +1,26 @@
+cmake_minimum_required(VERSION 3.6)
+
+PROJECT (tinygltf_tests)
+
+SET(CMAKE_CXX_STANDARD 11)
+
+option(TINYGLTF_BUILD_TESTER "Build tester" ON)
+option(TINYGLTF_BUILD_TESTER_NOEXCEPT "Build tester_noexcept" ON)
+
+if (TINYGLTF_BUILD_TESTER)
+  ADD_EXECUTABLE ( tester
+    tester.cc
+    )
+  TARGET_INCLUDE_DIRECTORIES( tester
+    PRIVATE ..)
+endif (TINYGLTF_BUILD_TESTER)
+
+if (TINYGLTF_BUILD_TESTER_NOEXCEPT)
+  ADD_EXECUTABLE ( tester_noexcept
+    tester.cc
+    )
+  TARGET_INCLUDE_DIRECTORIES( tester_noexcept
+    PRIVATE ..)
+  TARGET_COMPILE_DEFINITIONS( tester_noexcept
+    PRIVATE TINYGLTF_NOEXCEPTION)
+endif (TINYGLTF_BUILD_TESTER_NOEXCEPT)
