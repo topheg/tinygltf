@@ -4045,7 +4045,6 @@ static bool ParseTextureInfo(
                             /* required */ true, "TextureInfo")) {
     return false;
   }
-
   ParseIntegerProperty(&texinfo->texCoord, err, o, "texCoord", false);
 
   ParseExtensionsProperty(&texinfo->extensions, err, o);
@@ -5132,6 +5131,10 @@ static bool ParseMaterial(Material *material, std::string *err, const json &o,
     }
   }
 
+  material->extensions.clear();
+  ParseExtensionsProperty(&material->extensions, err, o);
+  ParseExtrasProperty(&(material->extras), o);
+
   //
   // Materialize some KHR material extensions.
   // KHR material extensions still exists in `exntensions` as Value(opaque)
@@ -5150,10 +5153,6 @@ static bool ParseMaterial(Material *material, std::string *err, const json &o,
         o["extensions"][kKHR_materials_pbrSpecularGlossiness.c_str()],
         store_original_json_for_extras_and_extensions);
   }
-
-  material->extensions.clear();
-  ParseExtensionsProperty(&material->extensions, err, o);
-  ParseExtrasProperty(&(material->extras), o);
 
   if (store_original_json_for_extras_and_extensions) {
     {
